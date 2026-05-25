@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Monitor | RDD-TG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --udistrital-blue: #003366; --udistrital-gold: #c5a059; }
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        .navbar { background-color: var(--udistrital-blue) !important; border-bottom: 4px solid var(--udistrital-gold); }
+        .card-custom { border: none; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .status-badge { font-size: 0.8em; padding: 5px 10px; border-radius: 20px; font-weight: bold; }
+        .online { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+        .offline { background-color: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
+        .icon-pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .badge-pending { background-color: #f59e0b; color: #fff; }
+        .terminal-box { 
+            background-color: #1e293b; 
+            color: #e2e8f0; 
+            font-family: 'Courier New', Courier, monospace; 
+            font-size: 0.85em; 
+            height: 200px; 
+            padding: 15px; 
+            border-radius: 8px; 
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3); 
+            border: 2px solid #cbd5e1;
+            overflow-y: auto;
+        }
+        .log-entry { margin-bottom: 5px; opacity: 0; animation: fadeIn 0.4s forwards; line-height: 1.3; }
+        @keyframes fadeIn { to { opacity: 1; } }
+        .log-success { color: #4ade80; font-weight: bold; }
+        .log-warning { color: #fbbf24; font-weight: bold; }
+        .log-error { color: #f87171; font-weight: bold; }
+        .log-info { color: #38bdf8; }
+        .log-system { color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark sticky-top mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold d-flex align-items-center" href="/">
+                <img src="{{ url_for('static', filename='Escudo_UD.svg.png') }}" alt="Logo UD" height="40" class="me-3">
+                Monitor de Nodos
+            </a>
+            <div class="d-flex">
+                <a href="/" class="btn btn-outline-light btn-sm"><i class="fas fa-arrow-left me-1"></i> Volver a Registro</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h3 class="fw-bold text-dark"><i class="fas fa-server me-2 text-secondary"></i>Estado del Sistema Distribuido</h3>
+            <div>
+                {% if pendientes > 0 %}
+                <button onclick="resincronizar()" id="btn-resync" class="btn btn-sm btn-warning me-2">
+                    <i class="fas fa-sync me-1"></i> Resincronizar ({{ pendientes }} pendientes)
+                </button>
+                {% endif %}
+                <button onclick="window.location.reload();" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-sync icon-pulse me-1"></i> Actualizar Red
+                </button>
+            </div>
+        </div>
+
+        <!-- Alerta de pendientes -->
+        {% if pendientes > 0 %}
+        <div class="alert alert-warning py-2 mb-4">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <b>{{ pendientes }}</b> tesis están guardadas localmente pero <b>pendientes de sincronización</b> con el índice global.
+            Esto significa que la Sede A opera de forma autónoma mientras el coordinador no está disponible.
+        </div>
+        {% endif %}
+
+        <!-- Consola de resincronización -->
+        <div id="resync-console-wrapper" class="mb-4" style="display: none;">
+            <h6 class="fw-bold"><i class="fas fa-terminal me-2"></i>Consola de Resincronización</h6>
+            <div id="terminal" class="terminal-box">
+                <div class="log-system">> Esperando acción...</div>
+            </div>
+        </div>
+        
+        <div class="row g-4">
+            <!-- SEDE A (Base de Datos Local) -->
+            <div class="col-md-6">
+                <div class="card card-custom h-100">
+                    <div class="card-header bg-white border-bottom-0 pt-4 pb-0 d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-0" style="color: var(--udistrital-blue);">📍 Base de Datos Sede A <small class="text-muted">(SQLite)</small></h5>
+                        <span class="status-badge {% if estado_local == 'Online' %}online{% else %}offline{% endif %}">
+                            <i class="fas fa-circle me-1" style="font-size: 0.7em;"></i> {{ estado_local }}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <hr>
+                        <ul class="list-group list-group-flush">
+                            {% for t in local %}
+                            <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <b class="text-dark">{{ t.id }}</b><br>
+                                    <small class="text-muted d-block">{{ t.titulo }}</small>
+                                    <small class="text-primary"><i class="fas fa-user me-1 mt-1"></i>{{ t.autor }}</small>
+                                </div>
+                                <div class="text-end">
+                                    {% if t.estado == 'sincronizado' %}
+                                    <span class="badge bg-success"><i class="fas fa-check-circle me-1"></i>Sincronizado</span>
+                                    {% else %}
+                                    <span class="badge badge-pending"><i class="fas fa-clock me-1"></i>Pendiente</span>
+                                    {% endif %}
+                                    <br><small class="text-muted"><i class="fas fa-hdd me-1 mt-1"></i>SQLite Local</small>
+                                </div>
+                            </li>
+                            {% else %}
+                            <li class="list-group-item px-0 text-center text-muted py-4"><i class="fas fa-folder-open mb-2 fs-3 opacity-50"></i><br>Sin registros locales</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ÍNDICE CENTRAL -->
+            <div class="col-md-6">
+                <div class="card card-custom h-100">
+                    <div class="card-header bg-white border-bottom-0 pt-4 pb-0 d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-0" style="color: var(--udistrital-gold);">🌐 Índice Central <small class="text-muted">(SQLite)</small></h5>
+                        <span class="status-badge {% if estado_global == 'Online' %}online{% else %}offline{% endif %}">
+                            <i class="fas fa-circle me-1" style="font-size: 0.7em;"></i> {{ estado_global }}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <hr>
+                        <ul class="list-group list-group-flush">
+                            {% for t in global_db %}
+                            <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <b class="text-dark">{{ t.id }}</b><br>
+                                    <small class="text-muted d-block">{{ t.titulo }}</small>
+                                    <small class="text-primary"><i class="fas fa-user me-1 mt-1"></i>{{ t.autor }}</small>
+                                </div>
+                                <span class="badge" style="background-color: var(--udistrital-gold);"><i class="fas fa-globe me-1"></i>Índice Global</span>
+                            </li>
+                            {% else %}
+                            <li class="list-group-item px-0 text-center text-muted py-4"><i class="fas fa-search mb-2 fs-3 opacity-50"></i><br>Índice global vacío o coordinador offline</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const addLog = (text, type) => {
+            const terminal = document.getElementById('terminal');
+            const div = document.createElement('div');
+            div.className = `log-entry log-${type}`;
+            const prefixes = { system: '>', success: '✔', error: '✖', warning: '⚠', info: '...' };
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${prefixes[type] || '>'} ${text}`;
+            terminal.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        };
+
+        async function resincronizar() {
+            const wrapper = document.getElementById('resync-console-wrapper');
+            const btn = document.getElementById('btn-resync');
+            wrapper.style.display = 'block';
+            
+            if(btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sincronizando...';
+            }
+
+            const terminal = document.getElementById('terminal');
+            terminal.innerHTML = '';
+            addLog("=== RESINCRONIZACIÓN INICIADA ===", "info");
+            addLog("Contactando coordinador central (144.217.85.170)...", "info");
+
+            try {
+                const response = await fetch('/reintentar', { method: 'POST' });
+                const data = await response.json();
+
+                if(data.estado === 'exito') {
+                    addLog(`Resultado: ${data.sincronizadas} sincronizadas, ${data.errores} fallos.`,
+                           data.errores > 0 ? "warning" : "success");
+                    
+                    if(data.detalle) {
+                        data.detalle.forEach(d => {
+                            if(d.resultado === 'sincronizado') {
+                                addLog(`  → ${d.id}: SINCRONIZADO ✅`, "success");
+                            } else {
+                                addLog(`  → ${d.id}: ${d.resultado.toUpperCase()} ⚠`, "warning");
+                            }
+                        });
+                    }
+
+                    if(data.sincronizadas > 0) {
+                        addLog("Recargando para reflejar cambios...", "system");
+                        setTimeout(() => window.location.reload(), 2500);
+                    }
+                } else {
+                    addLog("Error: " + data.mensaje, "error");
+                }
+            } catch(err) {
+                addLog("No se pudo contactar con la Sede A.", "error");
+            }
+
+            if(btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync me-1"></i> Reintentar';
+            }
+        }
+    </script>
+</body>
+</html>

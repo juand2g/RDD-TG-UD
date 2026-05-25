@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.env
+
+# SQLite databases (se generan automáticamente)
+*.db
+
+# Docs - solo se sube manual_tecnico.md
+docs/*.pdf
+docs/contenido_anexos.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

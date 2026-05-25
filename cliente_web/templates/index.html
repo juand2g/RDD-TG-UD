@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>RDD-TG | Universidad Distrital</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --udistrital-blue: #003366; --udistrital-gold: #c5a059; }
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        .navbar { background-color: var(--udistrital-blue) !important; border-bottom: 4px solid var(--udistrital-gold); }
+        .hero-section { background: linear-gradient(135deg, #003366 0%, #001a33 100%); color: white; padding: 50px 0; }
+        .card-custom { border: none; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: white; margin-top: -30px; }
+        .form-shadow-wrapper { background: #ffffff; padding: 25px; border-radius: 12px; box-shadow: 0 8px 25px rgba(0,0,0,0.12); border: 1px solid rgba(0,0,0,0.05); }
+        .btn-primary { background-color: var(--udistrital-blue); border: none; font-weight: 600; padding: 10px; }
+        
+        /* ESTILOS DE LA CONSOLA */
+        .terminal-box { 
+            background-color: #1e293b; 
+            color: #e2e8f0; 
+            font-family: 'Courier New', Courier, monospace; 
+            font-size: 0.95em; 
+            height: 380px; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.3); 
+            border: 2px solid #cbd5e1;
+            overflow-y: auto;
+        }
+        .log-entry { margin-bottom: 10px; opacity: 0; animation: fadeIn 0.4s forwards; line-height: 1.4; }
+        @keyframes fadeIn { to { opacity: 1; } }
+        .log-info { color: #38bdf8; }
+        .log-success { color: #4ade80; font-weight: bold; }
+        .log-error { color: #f87171; font-weight: bold; }
+        .log-warning { color: #fbbf24; font-weight: bold; }
+        .log-system { color: #94a3b8; }
+
+        .badge-pending { background-color: #f59e0b; color: #fff; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold d-flex align-items-center" href="/">
+                <img src="{{ url_for('static', filename='Escudo_UD.svg.png') }}" alt="Logo UD" height="40" class="me-3">
+                RDD-TG | Universidad Distrital
+            </a>
+            <div class="d-flex">
+                <a href="/dashboard" class="btn btn-outline-light btn-sm"><i class="fas fa-network-wired me-1"></i> Monitor de Nodos</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="hero-section">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h2 class="display-6 fw-bold">Repositorio Digital Distribuido</h2>
+                    <p class="lead opacity-75">Gestión atómica de trabajos de grado mediante el Patrón Saga con Consistencia Eventual.</p>
+                </div>
+                <div class="col-md-4 text-end d-none d-md-block">
+                    <i class="fas fa-database fa-5x opacity-25"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mb-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-11">
+                <div class="card-custom p-4">
+                    <div class="row g-4">
+                        
+                        <div class="col-md-6">
+                            <div class="form-shadow-wrapper mb-4">
+                                <h5 class="mb-3 fw-bold"><i class="fas fa-file-signature me-2 text-primary"></i>Nueva Publicación</h5>
+                                <form id="form-transaccion">
+                                    <div class="mb-2">
+                                        <input type="text" name="id" class="form-control bg-light" placeholder="ID (Ej: UD-2026-002)" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <input type="text" name="titulo" class="form-control bg-light" placeholder="Título del trabajo..." required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <input type="text" name="autor" class="form-control bg-light" placeholder="Autor del trabajo" required>
+                                    </div>
+                                    <button type="submit" id="btn-submit" class="btn btn-primary w-100">Sincronizar con Nodos</button>
+                                </form>
+                            </div>
+
+                            <!-- Botón de resincronización (visible si hay pendientes) -->
+                            {% if pendientes > 0 %}
+                            <div class="alert alert-warning d-flex justify-content-between align-items-center mb-3 py-2" id="alert-pendientes">
+                                <small><i class="fas fa-clock me-1"></i> <b>{{ pendientes }}</b> tesis pendientes de sincronización</small>
+                                <button class="btn btn-sm btn-warning" id="btn-resync" onclick="resincronizar()">
+                                    <i class="fas fa-sync me-1"></i> Reintentar
+                                </button>
+                            </div>
+                            {% endif %}
+
+                            <h6 class="fw-bold mb-2"><i class="fas fa-list-ul me-2 text-secondary"></i>Trabajos en Sede A <small class="text-muted">(SQLite)</small></h6>
+                            <ul class="list-group shadow-sm" id="lista-tesis">
+                                {% for t in local %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center p-2 border-light">
+                                    <div>
+                                        <span class="fw-bold text-dark">{{ t.id }}</span><br>
+                                        <small class="text-muted d-block" style="line-height: 1.2;">{{ t.titulo }}</small>
+                                        <small class="text-primary"><i class="fas fa-user-graduate me-1 mt-1"></i>{{ t.autor }}</small>
+                                    </div>
+                                    {% if t.estado == 'sincronizado' %}
+                                    <span class="badge bg-success rounded-pill" title="Sincronizado con índice global"><i class="fas fa-check-circle"></i></span>
+                                    {% else %}
+                                    <span class="badge badge-pending rounded-pill" title="Pendiente de sincronización"><i class="fas fa-clock"></i></span>
+                                    {% endif %}
+                                </li>
+                                {% else %}
+                                <li class="list-group-item text-center text-muted p-3" id="msg-vacio">Sin registros locales.</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <div class="col-md-6 border-start">
+                            <div class="ps-md-3">
+                                <h5 class="fw-bold mb-3"><i class="fas fa-desktop text-dark me-2"></i>Estado de Publicación</h5>
+                                
+                                <div id="terminal" class="terminal-box mb-3">
+                                    <div class="log-system">== Repositorio RDD-TG v3.0 (Consistencia Eventual) ==</div>
+                                    <div class="log-system">> Conectado a Sede A correctamente.</div>
+                                    <div class="log-system">> Base de datos: SQLite (persistente)</div>
+                                    <div class="log-system">> Esperando inicio de transacción...</div>
+                                </div>
+
+                                <div class="p-2 bg-light rounded border border-warning mb-2">
+                                    <small class="text-muted"><i class="fas fa-vial text-warning me-1"></i>Para prueba de fallo del coordinador use en el título:</small>
+                                    <code class="text-danger fw-bold ms-1">provocar_fallo</code>
+                                </div>
+                                <div class="p-2 bg-light rounded border border-info">
+                                    <small class="text-muted"><i class="fas fa-info-circle text-info me-1"></i>La tesis se guarda localmente aunque el coordinador falle. Luego puede resincronizar.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const addLog = (text, type) => {
+            const terminal = document.getElementById('terminal');
+            const div = document.createElement('div');
+            div.className = `log-entry log-${type}`;
+            const prefixes = { system: '>', success: '✔', error: '✖', warning: '⚠', info: '...' };
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${prefixes[type] || '>'} ${text}`;
+            terminal.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        };
+
+        document.getElementById('form-transaccion').addEventListener('submit', async function(e) {
+            e.preventDefault(); 
+            
+            const form = e.target;
+            const btn = document.getElementById('btn-submit');
+            const terminal = document.getElementById('terminal');
+            const formData = new FormData(form);
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Procesando...';
+            terminal.innerHTML = '<div class="log-system">== Nueva Transacción Iniciada ==</div>'; 
+
+            addLog("Iniciando Transacción Distribuida (Patrón Saga)...", "info");
+            setTimeout(() => addLog("PASO 1: Escribiendo en SQLite local de Sede A...", "info"), 800);
+            setTimeout(() => addLog("PASO 2: Disparando evento hacia Coordinador (144.217.85.170)...", "info"), 1600);
+
+            try {
+                const response = await fetch('/enviar', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                setTimeout(() => {
+                    if(data.estado === 'exito') {
+                        addLog("Guardado local: OK (SQLite Sede A)", "success");
+                        addLog("Respuesta Coordinador: 201 CREATED", "success");
+                        addLog("COMMIT DISTRIBUIDO: " + data.mensaje, "success");
+                        addLog("Estado de la tesis: SINCRONIZADO ✅", "system");
+                        agregarTesisALista(formData, 'sincronizado');
+                        resetForm(form, btn);
+
+                    } else if(data.estado === 'pendiente') {
+                        addLog("Guardado local: OK (SQLite Sede A)", "success");
+                        addLog("Coordinador: NO DISPONIBLE o RECHAZÓ", "warning");
+                        addLog("CONSISTENCIA EVENTUAL: " + data.mensaje, "warning");
+                        addLog("Estado de la tesis: PENDIENTE_SYNC ⏳", "warning");
+                        addLog("La tesis está segura en disco local. Use 'Reintentar' cuando el coordinador vuelva.", "system");
+                        agregarTesisALista(formData, 'pendiente_sync');
+                        resetForm(form, btn);
+                        mostrarAlertaPendientes();
+
+                    } else {
+                        addLog("ERROR CRÍTICO: " + data.mensaje, "error");
+                        addLog("ROLLBACK ejecutado: Error de integridad local.", "error");
+                        btn.disabled = false;
+                        btn.innerHTML = 'Reintentar Transacción';
+                    }
+                }, 2400);
+
+            } catch (error) {
+                setTimeout(() => {
+                    addLog("Error Fatal: No se pudo contactar con la Sede A.", "error");
+                    btn.disabled = false;
+                    btn.innerHTML = 'Reintentar Transacción';
+                }, 2400);
+            }
+        });
+
+        function agregarTesisALista(formData, estado) {
+            const lista = document.getElementById('lista-tesis');
+            const msgVacio = document.getElementById('msg-vacio');
+            if(msgVacio) msgVacio.remove();
+
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center p-2 border-light';
+            
+            const badgeClass = estado === 'sincronizado' ? 'bg-success' : 'badge-pending';
+            const badgeIcon = estado === 'sincronizado' ? 'fa-check-circle' : 'fa-clock';
+            
+            li.innerHTML = `
+                <div>
+                    <span class="fw-bold text-dark">${formData.get('id')}</span><br>
+                    <small class="text-muted d-block" style="line-height: 1.2;">${formData.get('titulo')}</small>
+                    <small class="text-primary"><i class="fas fa-user-graduate me-1 mt-1"></i>${formData.get('autor')}</small>
+                </div>
+                <span class="badge ${badgeClass} rounded-pill"><i class="fas ${badgeIcon}"></i></span>
+            `;
+            lista.insertBefore(li, lista.firstChild);
+        }
+
+        function resetForm(form, btn) {
+            btn.disabled = false;
+            btn.innerHTML = 'Sincronizar con Nodos';
+            form.reset();
+        }
+
+        function mostrarAlertaPendientes() {
+            if (!document.getElementById('alert-pendientes')) {
+                const container = document.querySelector('.form-shadow-wrapper').parentElement;
+                const alert = document.createElement('div');
+                alert.id = 'alert-pendientes';
+                alert.className = 'alert alert-warning d-flex justify-content-between align-items-center mb-3 py-2';
+                alert.innerHTML = `
+                    <small><i class="fas fa-clock me-1"></i> Hay tesis pendientes de sincronización</small>
+                    <button class="btn btn-sm btn-warning" onclick="resincronizar()">
+                        <i class="fas fa-sync me-1"></i> Reintentar
+                    </button>
+                `;
+                container.querySelector('.form-shadow-wrapper').after(alert);
+            }
+        }
+
+        async function resincronizar() {
+            const terminal = document.getElementById('terminal');
+            const btnResync = document.getElementById('btn-resync');
+            if(btnResync) {
+                btnResync.disabled = true;
+                btnResync.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sincronizando...';
+            }
+            
+            addLog("=== RESINCRONIZACIÓN INICIADA ===", "info");
+            addLog("Contactando coordinador para sincronizar tesis pendientes...", "info");
+
+            try {
+                const response = await fetch('/reintentar', { method: 'POST' });
+                const data = await response.json();
+
+                if(data.estado === 'exito') {
+                    addLog(`Resultado: ${data.sincronizadas} sincronizadas, ${data.errores} errores.`, 
+                           data.errores > 0 ? "warning" : "success");
+                    
+                    if(data.detalle) {
+                        data.detalle.forEach(d => {
+                            if(d.resultado === 'sincronizado') {
+                                addLog(`  → ${d.id}: SINCRONIZADO ✅`, "success");
+                            } else {
+                                addLog(`  → ${d.id}: ${d.resultado.toUpperCase()} ⚠`, "warning");
+                            }
+                        });
+                    }
+
+                    if(data.sincronizadas > 0) {
+                        addLog("Recargando página para reflejar cambios...", "system");
+                        setTimeout(() => window.location.reload(), 2000);
+                    }
+                } else {
+                    addLog("Error en resincronización: " + data.mensaje, "error");
+                }
+            } catch(err) {
+                addLog("No se pudo contactar con la Sede A para resincronizar.", "error");
+            }
+
+            if(btnResync) {
+                btnResync.disabled = false;
+                btnResync.innerHTML = '<i class="fas fa-sync me-1"></i> Reintentar';
+            }
+        }
+    </script>
+</body>
+</html>
